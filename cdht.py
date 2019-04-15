@@ -6,45 +6,58 @@ import select
 import threading
 
 class dhtNode:
-    def __init__(self, id, fir_successor, sec_successor):
+    def __init__(self, host, id, fir_successor, sec_successor):
         self.id = id
+        self.host = host
         self.fir_successor = fir_successor
         self.sec_successor = sec_successor
         self.fir_predecessor = None
         self.sec_predecessor = None
 
-    # def _handle_ping_message(self, message, addr):
+    def Listening(self):
+        L = ListenToPing(self.host,self.id+50000)
+        L.start()
+    
+    def Sending(self):
+        S1 = ReqPing(self.host,self.fir_successor+50000)
+        S1.start()
+        S2 = ReqPing(self.host,self.sec_successor+50000)
+        S2.start()
 
-    def Ping_listen_udp(self, host, port):
-        serversock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-        serversock.bind((host,port))
-        serversock.listen(5) #listen for connection
-
-        #Start the while loop.
+class ListenToPing(threading.Thread):
+    def __init__(self,host,port):
+        super(ListenToPing,self).__init__()
+        self.host = host
+        self.port = port
+    
+    def run(self):
+        LTPsock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+        LTPsock.bind((self.host,self.port))
         while True:
-            print("jj")
-            clientsock,addr = serversock.accept()
-            message = clientsock.recv(1024)
+            print("ss")
+            data, addr = LTPsock.recvfrom(1024)
             sending_peer = addr[1] - 50000
-            if message:
+            if data:
                 print(f"A ping request message was received from Peer {sending_peer}")
                 response = "Ping_response"
-                clientsock.sendto(response,addr)
-        clientsock.close()
+                LTPsock.sendto(response.encode("utf-8"),addr)
+        LTPsock.close()
 
-    def Ping_request_udp(self, host, port):
+    # def _handle_ping_message(self, message, addr)
+class ReqPing(threading.Thread):
+    def __init__(self,host,port):
+        super(ReqPing,self).__init__()
+        self.host = host
+        self.port = port
+
+    def run(self):
         mysock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-        mysock.connect((host,port))
-        ping_frequency = 0
         while True:
-            print("kk")
-            if ping_frequency % 3 == 0:
-                request = "ping_request"+" "+ "\r\n"
-                mysock.sendto(request.encode("utf-8"),(host,port))
-                data=mysock.recv(1024)
+            message = "ping"+ str(time.ctime()) + "\r\n"
+            mysock.sendto(message.encode("utf-8"),(self.host,self.port))
+            data = mysock.recv(1024)
             if data:
-                print(f"A ping response message was received from Peer {port-50000}")
-            ping_frequency += 1
+                print(f"A ping request message was received from Peer {self.port - 50000}")
         mysock.close()
 
 
@@ -67,8 +80,8 @@ class dhtNode:
 def main():
     host = 'localhost'
     #step1: initialize and configuration DHT
-    peer = dhtNode(int(sys.argv[1]),int(sys.argv[2]),int(sys.argv[3]))
-    
+    peer = dhtNode(host,int(sys.argv[1]),int(sys.argv[2]),int(sys.argv[3]))
+    print(int(sys.argv[1]),int(sys.argv[2]),int(sys.argv[3]))
 
     #step2: Ping successors
     #2.1 a peer whose identity is i will listen to the UDP port 50000 + i for ping messages.
@@ -79,17 +92,10 @@ def main():
         #2.3.1 "A ping response message was received from Peer 10."
     #2.5 You will need to decide on how often you send the ping messages.
     # listening to ping request
-    port = peer.id + 50000
     # one thread for listen to ping request
-    Listening_ping = threading.Thread(target = peer.Ping_listen_udp, args= (host,port),daemon=True)
-    Listening_ping.start()
+    peer.Listening()
     # two threads for sending ping request to two successors
-    fr_port = peer.fir_successor + 50000
-    sc_port = peer.sec_successor + 50000
-    Sending_ping_to_FirSccesr = threading.Thread(target = peer.Ping_request_udp,args=(host,fr_port), daemon=True)
-    Sending_ping_to_FirSccesr.start()
-    Sending_ping_to_SecSccesr = threading.Thread(target = peer.Ping_request_udp,args=(host,sc_port), daemon=True)
-    Sending_ping_to_SecSccesr.start()
+    peer.Sending()
     # send ping request
     
         # command = input("enter a command: ")
