@@ -5,7 +5,7 @@ import socket
 import select
 import threading
 import pickle
-MSS = 300
+blocksize, MSS = 300
 
 class dhtNode:
     def __init__(self, host, id, fir_successor, sec_successor):
@@ -28,7 +28,6 @@ class dhtNode:
         SndPingToSC = ReqPing(self.host,self.sec_successor+50000)
         SndPingToSC.start()
 
-
 class ListenToPing(threading.Thread):
     def __init__(self,host,port):
         super(ListenToPing,self).__init__()
@@ -40,61 +39,65 @@ class ListenToPing(threading.Thread):
     def run(self):
         LTPsock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         LTPsock.bind((self.host,self.port))
-        f_name = None
-        next_seq = 0
-        Seq = 0
-        Ack = 0
-        buffer = {}
-        isdone =False
-        d = b""
+        f_name, chunk = None, None
+        next_seq,Seq,Ack = 0,0,0
+        isdone, isPing,isSlice = False, False
+        sentinel1 = b'\x00\x00PING_REQUEST!\x00\x00'
+        sentinel2 = b'\x00\x00PING_END!\x00\x00'
+        sentinel3 = b'\x00\x00START_MESSAGE!\x00\x00'
+        sentinel4 = b'\x00\x00END_MESSAGE!\x00\x00'
+        Fblocks = []
         while True:
             data, addr = LTPsock.recvfrom(1024)
             sending_peer = addr[1] - 50000
-            if data:
-                if "Ping_request" in pickle.loads(data):
+            blocks.append(data)
+            # beginning of a ping request
+            if data == sentinel1:
+                isPing = True
+            # beginning of a sliced pickled fragments
+            elif data == sentinel3:
+                isSlice = True
+            # a completely original pickled fragment or some part of sliced pickled fragment or a ping message
+            elif data != sentinel2 and data != sentinel4:
+                # is a ping message
+                if isPing:
+                    # because we dont have to consider packet sent out of order
+                    # otherwise we have to store in a list first rather than send response immediately
                     print(f"A ping request message was received from Peer {sending_peer}")
                     response = pickle.dumps({"Ping_response":time.ctime()})
                     LTPsock.sendto(response,addr)
-                # else:#download and reassemble file
-            # print("downloading file")
-            
-            # # while True:
-            # if not data: break
-            # d += data
-                # chunk = pickle.loads(d)
-                # print(data)
-                # if isdone:
-                #     f_name = None
-                #     next_seq = 0
-                #     Seq = 0
-                #     Ack = 0
-                #     buffer = {}
-                #     isdone =False
-                # if not f_name:
-                #     f_name = chunk[2].decode()
-                #     f = open("received_"+f_name+".pdf",'wb')
-                #     next_seq += len(f_name)
-                # if chunk[0] == next_seq:
-                #     content = chunk[2] + '\r\n'
-                #     f.write(content.encode('utf-8'))
-                #     Ack = next_seq
-                #     next_seq += len(chunk[2])
-                #     if buffer:
-                #         while min(list(buffer.keys())) == next_seq:
-                #             content = buffer[next_seq] + '\r\n'
-                #             f.write(content.encode('utf-8'))
-                #             del buffer[next_seq]
-                #             Ack = next_seq
-                #             next_seq += len(chunk[2])
-                # else:
-                #     if(len(chunk) == 2):
-                #         isdone == True
-                #     else:
-                #         buffer[chunk[0]]=chunk[2]
-                # acknowledgement = str(Seq) + " "+str(Ack) + '\r\n'
-                # LTPsock.sendto(acknowledgement.encode("utf-8"),addr)
-        c = pickle.loads(d)
-        print(c)
+                # is some part of sliced pickled fragment
+                elif isSlice:
+                    Fblocks.append(data)
+                else:  # is a completely original pickled fragment 
+                    chunk = pickle.loads(data)
+            # end of a ping request
+            elif data == sentinel2:
+                isPing = False
+            else:# end of a sliced pickled fragment
+                isSlice = False
+                chunk = b''.join(Fblocks)
+                Fblocks = []
+            # a complete pickled fragment
+            if chunk:
+                if isdone:
+                    f_name = None
+                    next_seq, Seq, Ack = 0,0,0
+                    isdone =False
+                if not f_name:
+                    f_name = chunk["data"]
+                    f = open("received_"+f_name+".pdf",'wb')
+                    next_seq += len(f_name)
+                if chunk["seq"] == next_seq:
+                    if(len(chunk) == 2):
+                        isdone == True
+                    else:
+                        f.write(chunk["data"])
+                        Ack = next_seq
+                        next_seq += len(chunk["data"])
+                acknowledgement = str(Seq) + " "+str(Ack) + '\r\n'
+                LTPsock.sendto(acknowledgement.encode("utf-8"),addr)
+                chunk = None
         LTPsock.close()
 
 class ReqPing(threading.Thread):
@@ -105,12 +108,16 @@ class ReqPing(threading.Thread):
     
     def run(self):
         mysock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-        while True:
-            toSendPing = pickle.dumps({"Ping_request": time.ctime()})
-            mysock.sendto(toSendPing,(self.host,self.port))
-            recvResponse = pickle.loads(mysock.recv(1024))
-            if "Ping_response" in recvResponse:
-                print(f"A ping response message was received from Peer {self.port - 50000}")
+        # while True:
+        toSendPing = pickle.dumps({"Ping_request": time.ctime()})
+        sentinel1 = b'\x00\x00PING_REQUEST!\x00\x00'
+        sentinel2 = b'\x00\x00PING_END!\x00\x00'
+        mysock.sendto(sentinel1,(self.host,self.port))
+        mysock.sendto(toSendPing,(self.host,self.port))
+        mysock.sendto(sentinel2,(self.host,self.port))
+        recvResponse = pickle.loads(mysock.recv(1024))
+        if "Ping_response" in recvResponse:
+            print(f"A ping response message was received from Peer {self.port - 50000}")
         mysock.close()
 
 class ReqFile(threading.Thread):
@@ -182,14 +189,21 @@ class transferFile(threading.Thread):
             toSendPacket["ack"] = Ack
             toSendPacket["data"] = data
             pickle_out = pickle.dumps(toSendPacket)
-            mysock.sendto(pickle_out,(self.host,self.port))
+            #slice pickles
+            sentinel3 = b'\x00\x00START_MESSAGE!\x00\x00'
+            sentinel4 = b'\x00\x00END_MESSAGE!\x00\x00'
+            mysock.sendto(sentinel3, (self.host,self.port))
+            for n in range(len(pickle_out) // blocksize + 1):
+                mysock.sendto(pickle_out[n * blocksize: (n + 1) * blocksize], (self.host,self.port))
+            mysock.sendto(sentinel4, (self.host,self.port))
+
             seq += len(data)
             data = f.read(MSS)
         # send a data with 0 size to indicate the completion of transfering file
         toSendPacket = {}
         toSendPacket["seq"] = seq
         toSendPacket["ack"] = Ack
-        toSendPacket["data"] = data
+        toSendPacket["data"] = ""
         pickle_out = pickle.dumps(toSendPacket)
         mysock.sendto(pickle_out,(self.host,self.port))
         self.file_name = None
@@ -211,11 +225,14 @@ def main():
     # send ping request
     peer.Pinging()
     #step3: Requesting a file
-    # while True:
-    #     command = input("enter a command: ").split()
-    #     if len(command) == 2:
-    #         t = transferFile(peer.host,peer.fir_successor+50000,"2012")
-    #         t.start()
+    while True:
+        command = input("enter a command: ").split()
+        if command:
+            if len(command) == 2:
+                while 1:
+                     if Myhash(command[1])
+            t = transferFile(peer.host,peer.fir_successor+50000,"2012")
+            t.start()
     
     #step4
 
