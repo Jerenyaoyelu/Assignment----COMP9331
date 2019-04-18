@@ -43,18 +43,19 @@ class dhtNode:
                 if packet["Peer"] == self.sec_successor:
                     self.noreply_2 -= 1
             if "FileFound_response" == packet["flag"]:
+                start = time.time()
                 receiver = open("response_log.txt","w+")
                 print(f"Received a response message from peer {packet['SendingPeer']}, which has the file .")
                 f = open("received_file.pdf",'wb')
                 print("We now start receiving the file ………")
             if "File_tansferring" == packet["flag"]:
-                log = "rcv"+" "*10 + str(time.time()) + " "*10 + str(next_seq) + " "*10 +str(MSS) + str(Ack)
+                log = "rcv"+" "*20 + str(time.time()-start) + " "*20 + str(Ack)+ " "*20 +str(MSS) + " "*20+ str(next_seq) + "\n"
                 receiver.write(log)
                 next_seq += len(packet["data"])
                 Ack = next_seq
                 acknowledgement = pickle.dumps({"flag":"Ack","seq": 0, "ack":Ack, "data":None})
                 LTPsock.sendto(acknowledgement,addr)
-                log = "snd"+" "*10 + str(time.time()) + " "*10 + str(next_seq) + " "*10 +str(MSS) + str(Ack)
+                log = "snd"+" "*20 + str(time.time()-start) + " "*20 + str(next_seq) + " "*20 +str(MSS)+ " "*20 + str(Ack) + "\n"
                 receiver.write(log)
                 if packet["data"] == '\0':
                     receiver.close()
@@ -74,7 +75,7 @@ class dhtNode:
                 mysock.sendto(toSendPing,(host,self.sec_successor + 50000))
                 self.noreply_1 += 1
                 self.noreply_2 += 1
-                time.sleep(20)
+                time.sleep(15)
             except TimeoutError:
                 continue
         mysock.close()
@@ -99,9 +100,9 @@ class dhtNode:
             connectionSocket, addr = serverSocket.accept()
             command = pickle.loads(connectionSocket.recv(1024))
             if command and "Request_File" == command["flag"]:
-                visitedPeer = command["RequestedPeer"]
-                if self.peer not in visitedPeer and self.peer != command["RequestingPeer"]:
-                    visitedPeer.append(self.peer)
+                vPeer = command["visitedPeer"]
+                if self.peer not in vPeer and self.peer != command["RequestingPeer"]:
+                    vPeer.append(self.peer)
                     filename = command["File"]
                     loca = command["location"]
                     # update location of file in the message
@@ -112,9 +113,9 @@ class dhtNode:
                         self.SAWTransFile(host,self.peer,filename,command["RequestingPeer"])
                     else:
                         print(f"File {filename} is not here.")
-                        message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":command["RequestingPeer"],"location":loca,"RequestedPeer":visitedPeer})
+                        message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":command["RequestingPeer"],"location":loca,"visitedPeer":vPeer})
                         self.ForwardFileRes(host,message,self.fir_successor)
-                        self.ForwardFileRes(host,message,self.sec_successor)
+                        # self.ForwardFileRes(host,message,self.sec_successor)
                         print(f"File request message for {filename} has been sent to my successor.")
             connectionSocket.close()
     #over TCP
@@ -151,31 +152,31 @@ class dhtNode:
             #simulate packet dropping
             if drop >= drop_rate:
                 mysock.sendto(pickle_out,(host,dest + 50000))
-                log = "snd"+" "*10 + str(time.time()) + " "*10 + str(seq) + " "*10 +str(MSS) + str(Ack)
+                log = "snd"+" "*20 + str(time.time()) + " "*20 + str(seq) + " "*20 +str(MSS)+ " "*20 + str(Ack) + "\n"
                 sender.write(log)
             else:
-                log = "Drop"+" "*10 + str(time.time()) + " "*10 + str(seq) + " "*10 +str(MSS) + str(Ack)
+                log = "Drop"+" "*19 + str(time.time()) + " "*20 + str(seq) + " "*20 +str(MSS) + " "*20+ str(Ack)+ "\n"
                 sender.write(log)
                 time.sleep(1)
                 if drop >= drop_rate:
                     mysock.sendto(pickle_out,(host,dest + 50000))
-                    log = "RTX"+" "*10 + str(time.time()) + " "*10 + str(seq) + " "*10 +str(MSS) + str(Ack)
+                    log = "RTX"+" "*20 + str(time.time()) + " "*20 + str(seq) + " "*20 +str(MSS) + " "*20+ str(Ack)+ "\n"
                     sender.write(log)
                 else:
-                    log = "RTX/Drop"+" "*10 + str(time.time()) + " "*10 + str(seq) + " "*10 +str(MSS) + str(Ack)
+                    log = "RTX/Drop"+" "*15 + str(time.time()) + " "*20 + str(seq) + " "*20 +str(MSS) + " "*20+ str(Ack)+ "\n"
                     sender.write(log)
                     mysock.sendto(pickle_out,(host,dest + 50000))
             # stop and wait
             while True:
                 acknowledge = mysock.recv(1024)
                 if acknowledge:
-                    log = "rcv"+" "*10 + str(time.time()) + " "*10 + str(seq) + " "*10 +str(MSS) + str(Ack)
+                    log = "rcv"+" "*20 + str(time.time()) + " "*20 + str(Ack) + " "*20 +str(MSS) + " "*20+ str(seq)+ "\n"
                     sender.write(log)
                     break
                 else:
                     if time.time()- start > 1:
                         mysock.sendto(pickle_out,(host,dest + 50000))
-                        log = "RTX"+" "*10 + str(time.time()) + " "*10 + str(seq) + " "*10 +str(MSS) + str(Ack)
+                        log = "RTX"+" "*20 + str(time.time()) + " "*20 + str(seq) + " "*20 +str(MSS) + " "*20+ str(Ack)+ "\n"
                         sender.write(log)
                         break
             seq += len(data)
@@ -195,13 +196,16 @@ class dhtNode:
     def UsrInput(self,host):
         while True:
             command = input().split()
+            loca = -1
             if len(command) == 2 and command[0] == "Request":
                 filename = int(command[1])
                 if self.myHash(filename) >255 or self.myHash(filename)<0:
                     print("Requesting file does not exist!")
-                message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":self.peer, "location":-1,"RequestedPeer":[]})
+                if self.peer > self.fir_successor:
+                    loca = self.location(filename)
+                message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":self.peer, "location":loca,"visitedPeer":[]})
                 self.ForwardFileRes(host,message,self.fir_successor)
-                self.ForwardFileRes(host,message,self.sec_successor)
+                # self.ForwardFileRes(host,message,self.sec_successor)
             elif len(command) == 1 and command[0] == "Quit":
                 self.isAlive = False
             else:
