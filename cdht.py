@@ -25,17 +25,18 @@ class dhtNode:
         LTPsock.bind((host,self.port))
         packet = {}
         next_seq,Ack = 0,0
-        while True:
+        while self.isAlive:
             data, addr = LTPsock.recvfrom(1024)
             packet = pickle.loads(data)
             if "Ping_request" == packet["flag"]:
                 print(f"A ping request message was received from Peer {packet['Peer']}")
-                if self.fir_predecessor is None:
-                    self.fir_predecessor = packet["FS"]
-                if self.sec_predecessor is None:
-                    self.sec_predecessor = packet["SC"]
+                if self.peer == packet["FS"]:
+                    self.fir_predecessor = packet["Peer"]
+                if self.peer == packet["SC"]:
+                    self.sec_predecessor = packet["Peer"]
                 response = pickle.dumps({"flag":"Ping_response","Peer":self.peer})
                 LTPsock.sendto(response,addr)
+            ## problem: this is not running, why???
             if "Ping_response" == packet["flag"]:
                 print(f"A ping response message was received from Peer {packet['Peer']}")
                 if packet["Peer"] == self.fir_successor:
@@ -68,7 +69,7 @@ class dhtNode:
     def UDP_Client(self,host):
         mysock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         mysock.settimeout(1)
-        while True:
+        while self.isAlive:
             try:
                 toSendPing = pickle.dumps({"flag":"Ping_request","Peer":self.peer,"FS":self.fir_successor,"SC":self.sec_successor})
                 mysock.sendto(toSendPing,(host,self.fir_successor + 50000))
@@ -99,24 +100,37 @@ class dhtNode:
         while True:
             connectionSocket, addr = serverSocket.accept()
             command = pickle.loads(connectionSocket.recv(1024))
-            if command and "Request_File" == command["flag"]:
-                vPeer = command["visitedPeer"]
-                if self.peer not in vPeer and self.peer != command["RequestingPeer"]:
-                    vPeer.append(self.peer)
-                    filename = command["File"]
-                    loca = command["location"]
-                    # update location of file in the message
-                    if loca == -1 and self.location(filename) > -1:
-                        loca = self.location(filename)
-                    if loca == self.peer:
-                        print(f"File {filename} is here.")
-                        self.SAWTransFile(host,self.peer,filename,command["RequestingPeer"])
-                    else:
-                        print(f"File {filename} is not here.")
-                        message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":command["RequestingPeer"],"location":loca,"visitedPeer":vPeer})
-                        self.ForwardFileRes(host,message,self.fir_successor)
-                        # self.ForwardFileRes(host,message,self.sec_successor)
-                        print(f"File request message for {filename} has been sent to my successor.")
+            if command:
+                if "Request_File" == command["flag"]:
+                    vPeer = command["visitedPeer"]
+                    if self.peer not in vPeer and self.peer != command["RequestingPeer"]:
+                        vPeer.append(self.peer)
+                        filename = command["File"]
+                        loca = command["location"]
+                        # update location of file in the message
+                        if loca == -1 and self.location(filename) > -1:
+                            loca = self.location(filename)
+                        if loca == self.peer:
+                            print(f"File {filename} is here.")
+                            self.SAWTransFile(host,self.peer,filename,command["RequestingPeer"])
+                        else:
+                            print(f"File {filename} is not here.")
+                            message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":command["RequestingPeer"],"location":loca,"visitedPeer":vPeer})
+                            self.ForwardFileRes(host,message,self.fir_successor)
+                            # self.ForwardFileRes(host,message,self.sec_successor)
+                            print(f"File request message for {filename} has been sent to my successor.")
+                else:
+                    if self.peer != command['QuitingPeer']:
+                        print(f"Peer {command['QuitingPeer']} will depart from the network.")
+                        if self.fir_successor == command['QuitingPeer']:
+                            self.fir_successor = command['FS']
+                            print(f"My first successor is now peer {command['FS']}.")
+                            self.sec_successor = command["SC"]
+                            print(f"My first successor is now peer {command['SC']}.")
+                        if self.sec_successor == command['QuitingPeer']:
+                            self.sec_successor = command["FS"]
+                            print(f"My first successor is now peer {self.fir_successor}.")
+                            print(f"My first successor is now peer {command['FS']}.")
             connectionSocket.close()
     #over TCP
     def ForwardFileRes(self,host,message,dest):
@@ -208,6 +222,9 @@ class dhtNode:
                 # self.ForwardFileRes(host,message,self.sec_successor)
             elif len(command) == 1 and command[0] == "Quit":
                 self.isAlive = False
+                message = pickle.dumps({"flag":"Quit","QuitingPeer":self.peer, "FS":self.fir_successor, "SC":self.sec_successor})
+                self.ForwardFileRes(host,message,self.fir_predecessor)
+                self.ForwardFileRes(host,message,self.sec_predecessor)
             else:
                 print("Invalid Input!")
 
@@ -223,6 +240,5 @@ def main():
     Thred2.start()
     Thred3.start()
     Thred4.start()
-
 if __name__=='__main__':
     main()
