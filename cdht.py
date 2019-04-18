@@ -60,7 +60,7 @@ class dhtNode:
                     receiver.close()
                     f.close()
                     print("The file is received.")
-                    break
+                    continue
                 f.write(packet["data"])
         LTPsock.close()
     
@@ -99,20 +99,23 @@ class dhtNode:
             connectionSocket, addr = serverSocket.accept()
             command = pickle.loads(connectionSocket.recv(1024))
             if command and "Request_File" == command["flag"]:
-                filename = command["File"]
-                loca = command["location"]
-                # update location of file in the message
-                if loca == -1 and self.location(filename) > -1:
-                    loca = self.location(filename)
-                if loca == self.peer:
-                    print(f"File {filename} is here.")
-                    self.SAWTransFile(host,self.peer,filename,command["RequestingPeer"])
-                else:
-                    print(f"File {filename} is not here.")
-                    message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":command["RequestingPeer"],"location":loca})
-                    self.ForwardFileRes(host,message,self.fir_successor)
-                    self.ForwardFileRes(host,message,self.sec_successor)
-                    print(f"File request message for {filename} has been sent to my successor.")
+                visitedPeer = command["RequestedPeer"]
+                if self.peer not in visitedPeer and self.peer != command["RequestingPeer"]:
+                    visitedPeer.append(self.peer)
+                    filename = command["File"]
+                    loca = command["location"]
+                    # update location of file in the message
+                    if loca == -1 and self.location(filename) > -1:
+                        loca = self.location(filename)
+                    if loca == self.peer:
+                        print(f"File {filename} is here.")
+                        self.SAWTransFile(host,self.peer,filename,command["RequestingPeer"])
+                    else:
+                        print(f"File {filename} is not here.")
+                        message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":command["RequestingPeer"],"location":loca,"RequestedPeer":visitedPeer})
+                        self.ForwardFileRes(host,message,self.fir_successor)
+                        self.ForwardFileRes(host,message,self.sec_successor)
+                        print(f"File request message for {filename} has been sent to my successor.")
             connectionSocket.close()
     #over TCP
     def ForwardFileRes(self,host,message,dest):
@@ -196,7 +199,7 @@ class dhtNode:
                 filename = int(command[1])
                 if self.myHash(filename) >255 or self.myHash(filename)<0:
                     print("Requesting file does not exist!")
-                message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":self.peer, "location":-1})
+                message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":self.peer, "location":-1,"RequestedPeer":[]})
                 self.ForwardFileRes(host,message,self.fir_successor)
                 self.ForwardFileRes(host,message,self.sec_successor)
             elif len(command) == 1 and command[0] == "Quit":
