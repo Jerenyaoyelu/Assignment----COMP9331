@@ -60,7 +60,8 @@ class dhtNode:
     
     def UDP_Client(self,host):
         mysock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-        # mysock.settimeout(1)
+        #make sure all the servers are ready
+        mysock.settimeout(1)
         while self.isAlive:
             try:
                 toSendPing = pickle.dumps({"flag":"Ping_request","Peer":self.peer,"FS":self.fir_successor,"SC":self.sec_successor})
@@ -68,14 +69,18 @@ class dhtNode:
                 mysock.sendto(toSendPing,(host,self.sec_successor + 50000))
                 self.noreply_1 += 1
                 self.noreply_2 += 1
-                response = pickle.loads(mysock.recv(1024))
-                if response:
+                ready = select.select([mysock], [], [], 1)
+                if ready[0]:
+                    response = pickle.loads(mysock.recv(1024))
                     print(f"A ping response message was received from Peer {response['Peer']}")
                     if response["Peer"] == self.fir_successor:
                         self.noreply_1 -= 1
                     if response["Peer"] == self.sec_successor:
                         self.noreply_2 -= 1
-                time.sleep(10)
+                # if self.noreply_1 >= 4:
+                #     print(f"Peer {self.fir_successor} is no longer alive.")
+
+                time.sleep(5)
             except TimeoutError:
                 continue
         mysock.close()
