@@ -36,13 +36,6 @@ class dhtNode:
                     self.sec_predecessor = packet["Peer"]
                 response = pickle.dumps({"flag":"Ping_response","Peer":self.peer})
                 LTPsock.sendto(response,addr)
-            ## problem: this is not running, why???
-            if "Ping_response" == packet["flag"]:
-                print(f"A ping response message was received from Peer {packet['Peer']}")
-                if packet["Peer"] == self.fir_successor:
-                    self.noreply_1 -= 1
-                if packet["Peer"] == self.sec_successor:
-                    self.noreply_2 -= 1
             if "FileFound_response" == packet["flag"]:
                 start = time.time()
                 receiver = open("response_log.txt","w+")
@@ -52,8 +45,7 @@ class dhtNode:
             if "File_tansferring" == packet["flag"]:
                 log = "rcv"+" "*20 + str(time.time()-start) + " "*20 + str(Ack)+ " "*20 +str(MSS) + " "*20+ str(next_seq) + "\n"
                 receiver.write(log)
-                next_seq += len(packet["data"])
-                Ack = next_seq
+                Ack += len(packet["data"])
                 acknowledgement = pickle.dumps({"flag":"Ack","seq": 0, "ack":Ack, "data":None})
                 LTPsock.sendto(acknowledgement,addr)
                 log = "snd"+" "*20 + str(time.time()-start) + " "*20 + str(next_seq) + " "*20 +str(MSS)+ " "*20 + str(Ack) + "\n"
@@ -68,7 +60,7 @@ class dhtNode:
     
     def UDP_Client(self,host):
         mysock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-        mysock.settimeout(1)
+        # mysock.settimeout(1)
         while self.isAlive:
             try:
                 toSendPing = pickle.dumps({"flag":"Ping_request","Peer":self.peer,"FS":self.fir_successor,"SC":self.sec_successor})
@@ -76,7 +68,14 @@ class dhtNode:
                 mysock.sendto(toSendPing,(host,self.sec_successor + 50000))
                 self.noreply_1 += 1
                 self.noreply_2 += 1
-                time.sleep(15)
+                response = pickle.loads(mysock.recv(1024))
+                if response:
+                    print(f"A ping response message was received from Peer {response['Peer']}")
+                    if response["Peer"] == self.fir_successor:
+                        self.noreply_1 -= 1
+                    if response["Peer"] == self.sec_successor:
+                        self.noreply_2 -= 1
+                time.sleep(10)
             except TimeoutError:
                 continue
         mysock.close()
