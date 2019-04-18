@@ -42,19 +42,6 @@ class dhtNode:
                     self.noreply_1 -= 1
                 if packet["Peer"] == self.sec_successor:
                     self.noreply_2 -= 1
-            # if "FileFound_response" == packet["flag"]:
-            #     print(f"Received a response message from peer {packet['SendingPeer']}, which has the file .")
-            #     f = open("received_file.pdf",'wb')
-            #     print("We now start receiving the file ………")
-            # if "File_tansferring" == packet["flag"]:
-            #     if packet["data"] == '\0':
-            #         next_seq, Ack = 0,0
-            #     else:
-            #         f.write(packet["data"])
-            #     Ack = next_seq
-            #     next_seq += len(packet["data"])
-            #     acknowledgement = pickle.dumps({"flag":"Ack","seq": 0, "ack":Ack, "data":None})
-            #     LTPsock.sendto(acknowledgement,addr)
             if "FileFound_response" == packet["flag"]:
                 receiver = open("response_log.txt","w+")
                 print(f"Received a response message from peer {packet['SendingPeer']}, which has the file .")
@@ -72,6 +59,7 @@ class dhtNode:
                 if packet["data"] == '\0':
                     receiver.close()
                     f.close()
+                    print("The file is received.")
                     break
                 f.write(packet["data"])
         LTPsock.close()
@@ -90,15 +78,17 @@ class dhtNode:
             except TimeoutError:
                 continue
         mysock.close()
-    
+    def myHash(self,filename):
+        return filename % 256
+
     def location(self,filename):
-        hashValue = filename % 256
+        hashValue = self.myHash(filename)
         if self.peer < hashValue <= self.fir_successor:
             return self.fir_successor
         if self.fir_successor < self.peer:
             if self.peer < hashValue <= 255 or hashValue <= self.fir_successor:
                 return self.fir_successor 
-        return 0
+        return -1
 
     def TCP_server(self,host):
         serverPort = self.port # change this port number if required
@@ -110,13 +100,18 @@ class dhtNode:
             command = pickle.loads(connectionSocket.recv(1024))
             if command and "Request_File" == command["flag"]:
                 filename = command["File"]
-                if self.location(filename) == self.peer:
+                loca = command["location"]
+                # update location of file in the message
+                if loca == -1 and self.location(filename) > -1:
+                    loca = self.location(filename)
+                if loca == self.peer:
                     print(f"File {filename} is here.")
                     self.SAWTransFile(host,self.peer,filename,command["RequestingPeer"])
                 else:
                     print(f"File {filename} is not here.")
-                    message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":command["RequestingPeer"]})
-                    self.ForwardFileRes(host,message,command["RequestingPeer"])
+                    message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":command["RequestingPeer"],"location":loca})
+                    self.ForwardFileRes(host,message,self.fir_successor)
+                    self.ForwardFileRes(host,message,self.sec_successor)
                     print(f"File request message for {filename} has been sent to my successor.")
             connectionSocket.close()
     #over TCP
@@ -127,36 +122,6 @@ class dhtNode:
         clientSocket.connect((serverName, serverPort))
         clientSocket.send(message)
         clientSocket.close()
-    
-    #over UDP
-    # def RecvFile(self,host):
-    #     receiver = open("response_log.txt","w+")
-    #     RFsock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-    #     RFsock.bind((host,self.port+10000))
-    #     packet = {}
-    #     next_seq,Ack = 1,0
-    #     while True:
-    #         data, addr = RFsock.recvfrom(1024)
-    #         packet = pickle.loads(data)
-    #         if "FileFound_response" == packet["flag"]:
-    #             print(f"Received a response message from peer {packet['SendingPeer']}, which has the file .")
-    #             f = open("received_file.pdf",'wb')
-    #             print("We now start receiving the file ………")
-    #         if "File_tansferring" == packet["flag"]:
-    #             f.write(packet["data"])
-    #             log = "rcv"+" "*10 + str(time.time()) + " "*10 + str(next_seq) + " "*10 +str(MSS) + str(Ack)
-    #             receiver.write(log)
-    #             next_seq += len(packet["data"])
-    #             Ack = next_seq
-    #             acknowledgement = pickle.dumps({"flag":"Ack","seq": 0, "ack":Ack, "data":None})
-    #             RFsock.sendto(acknowledgement,addr)
-    #             log = "snd"+" "*10 + str(time.time()) + " "*10 + str(next_seq) + " "*10 +str(MSS) + str(Ack)
-    #             receiver.write(log)
-    #         if packet["data"] == '\0':
-    #             receiver.close()
-    #             f.close()
-    #             break
-    #     RFsock.close()
 
     #over UDP
     def SAWTransFile(self,host,peer,filename,dest):
@@ -229,9 +194,9 @@ class dhtNode:
             command = input().split()
             if len(command) == 2 and command[0] == "Request":
                 filename = int(command[1])
-                if filename >255 or filename<0:
+                if self.myHash(filename) >255 or self.myHash(filename)<0:
                     print("Requesting file does not exist!")
-                message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":self.peer})
+                message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":self.peer, "location":-1})
                 self.ForwardFileRes(host,message,self.fir_successor)
                 self.ForwardFileRes(host,message,self.sec_successor)
             elif len(command) == 1 and command[0] == "Quit":
@@ -243,15 +208,14 @@ def main():
     host = 'localhost'
     peer = dhtNode(int(sys.argv[1]),int(sys.argv[2]),int(sys.argv[3]))
     Thred1 = threading.Thread(target=peer.UDP_Server,args=(host,))
-    # Thred2 = threading.Thread(target=peer.UDP_Client,args=(host,))
-    # Thred3 = threading.Thread(target=peer.TCP_server, args=(host,))
-    # Thred4 = threading.Thread(target=peer.UsrInput, args=(host,))
+    Thred2 = threading.Thread(target=peer.UDP_Client,args=(host,))
+    Thred3 = threading.Thread(target=peer.TCP_server, args=(host,))
+    Thred4 = threading.Thread(target=peer.UsrInput, args=(host,))
     
     Thred1.start()
-    # Thred2.start()
-    # Thred3.start()
-    # Thred4.start()
-    peer.SAWTransFile(host,2,3,1)
+    Thred2.start()
+    Thred3.start()
+    Thred4.start()
 
 if __name__=='__main__':
     main()
