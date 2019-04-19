@@ -26,27 +26,31 @@ class dhtNode:
         while self.isAlive:
             data, addr = LTPsock.recvfrom(1024)
             packet = pickle.loads(data)
+            # receive ping request
             if "Ping_request" == packet["flag"]:
                 print(f"A ping request message was received from Peer {packet['Peer']}")
                 if self.peer == packet["FS"]:
                     self.fir_predecessor = packet["Peer"]
                 if self.peer == packet["SC"]:
                     self.sec_predecessor = packet["Peer"]
+                # send ping response of ping request
                 response = pickle.dumps({"flag":"Ping_response","seq": packet["seq"],"Peer":self.peer})
                 LTPsock.sendto(response,addr)
+            # tell the file is about to be transferred
             if "FileFound_response" == packet["flag"]:
                 start = time.time()
                 receiver = open("response_log.txt","w+")
-                print(f"Received a response message from peer {packet['SendingPeer']}, which has the file .")
                 f = open("received_file.pdf",'wb')
                 print("We now start receiving the file ………")
+            # start to download the file
             if "File_tansferring" == packet["flag"]:
-                log = "rcv"+" "*20 + str(time.time()-start) + " "*20 + str(Ack)+ " "*20 +str(MSS) + " "*20+ str(next_seq) + "\n"
+                log = "rcv"+" "*20 + str(time.time()) + " "*20 + str(Ack)+ " "*20 +str(MSS) + " "*20+ str(next_seq) + "\n"
                 receiver.write(log)
                 Ack += len(packet["data"])
+                # send back Acks
                 acknowledgement = pickle.dumps({"flag":"Ack","seq": 0, "ack":Ack, "data":None})
                 LTPsock.sendto(acknowledgement,addr)
-                log = "snd"+" "*20 + str(time.time()-start) + " "*20 + str(next_seq) + " "*20 +str(MSS)+ " "*20 + str(Ack) + "\n"
+                log = "snd"+" "*20 + str(time.time()) + " "*20 + str(next_seq) + " "*20 +str(MSS)+ " "*20 + str(Ack) + "\n"
                 receiver.write(log)
                 if packet["data"] == '\0':
                     receiver.close()
@@ -68,26 +72,35 @@ class dhtNode:
         while self.isAlive:
             try:
                 toSendPing = pickle.dumps({"flag":"Ping_request","seq":seq,"Peer":self.peer,"FS":self.fir_successor,"SC":self.sec_successor})
+                # send ping request to the first successor
                 mysock.sendto(toSendPing,(host,self.fir_successor + 50000))
                 # because send ping twice, so I need to receive response twice
                 # The reason I didnt get all response before is because of not being aware of this!!
                 ready = select.select([mysock], [], [], 1)
                 if ready[0]:
+                    # receive the first response
                     response = pickle.loads(mysock.recv(1024))
                     print(f"A ping response message was received from Peer {response['Peer']}")
                     if response["Peer"] == self.fir_successor:
+                        #update the sequence number of the newest received response
                         recvd_seq1 = max(recvd_seq1, response["seq"])
                     if response["Peer"] == self.sec_successor:
+                        #update the sequence number of the newest received response
                         recvd_seq2 = max(recvd_seq2 ,response["seq"])
+                # send ping request to the second successor
                 mysock.sendto(toSendPing,(host,self.sec_successor + 50000))
                 ready = select.select([mysock], [], [], 1)
                 if ready[0]:
+                    # receive the second response
                     response = pickle.loads(mysock.recv(1024))
                     print(f"A ping response message was received from Peer {response['Peer']}")
                     if response["Peer"] == self.fir_successor:
+                        #update the sequence number of the newest received response
                         recvd_seq1 = max(recvd_seq1, response["seq"])
                     if response["Peer"] == self.sec_successor:
+                        #update the sequence number of the newest received response
                         recvd_seq2 = max(recvd_seq2 ,response["seq"])
+                # the killed peer is the first successor
                 if seq - recvd_seq1 >= 4:
                     # avoid printing duplicately
                     # avoid sending message to a dead peer which leads to an "connection refused" error
@@ -98,6 +111,7 @@ class dhtNode:
                         # mysock.sendto(message,(host,self.sec_successor + 50000))
                         self.ForwardFileRes(host,message,self.sec_successor)
                         isFirAlive = False
+                # the killed peer is the second successor
                 if seq - recvd_seq2 >= 4:
                     if isSecAlive:
                         print(f"Peer {self.sec_successor} is no longer alive.")
@@ -137,14 +151,22 @@ class dhtNode:
                     if self.peer not in vPeer and self.peer != command["RequestingPeer"]:
                         vPeer.append(self.peer)
                         filename = command["File"]
+                        # get the location information from the message
                         loca = command["location"]
                         # update location of file in the message
                         if loca == -1 and self.location(filename) > -1:
                             loca = self.location(filename)
                         if loca == self.peer:
+                            # storing the file
                             print(f"File {filename} is here.")
+                            # format the file found response and send it to the requesting peer directly
+                            pickle_out = pickle.dumps({"flag":"FileFound_response","SendingPeer": self.peer,"RequestingPeer":command["RequestingPeer"]})
+                            self.ForwardFileRes(host,pickle_out,command["RequestingPeer"])
+                            print(f"A response message, destined for peer {command['RequestingPeer']}, has been sent.")
                             self.SAWTransFile(host,self.peer,filename,command["RequestingPeer"])
+                            print("We now start sending the file ………")
                         else:
+                            # not storing the file
                             print(f"File {filename} is not here.")
                             message = pickle.dumps({"flag":"Request_File","File":filename,"RequestingPeer":command["RequestingPeer"],"location":loca,"visitedPeer":vPeer})
                             self.ForwardFileRes(host,message,self.fir_successor)
@@ -153,25 +175,32 @@ class dhtNode:
                 elif "Quit" == command["flag"]:
                     if self.peer != command['QuitingPeer']:
                         print(f"Peer {command['QuitingPeer']} will depart from the network.")
+                        # The quiting peer is the first successor of the current peer
                         if self.fir_successor == command['QuitingPeer']:
                             self.fir_successor = command['FS']
                             print(f"My first successor is now peer {command['FS']}.")
                             self.sec_successor = command["SC"]
                             print(f"My first successor is now peer {command['SC']}.")
+                        # The quiting peer is the second successor of the current peer
                         if self.sec_successor == command['QuitingPeer']:
                             self.sec_successor = command["FS"]
                             print(f"My first successor is now peer {self.fir_successor}.")
                             print(f"My first successor is now peer {command['FS']}.")
+                elif "FileFound_response" == command["flag"]:
+                    print(f"Received a response message from peer {command['SendingPeer']}, which has the file .")
                 elif "Request_successor" == command["flag"]:
                     raw_message = {"flag":"Response_successor","Peer":self.peer,"KilledPeer":command["KilledPeer"],"FS":self.fir_successor,"SC":self.sec_successor}
                     message = pickle.dumps(raw_message)
                     self.ForwardFileRes(host,message,command["Peer"])
                 else:
+                    # receive the successor requesting response
+                    # The killed peer is the first successor of the current peer
                     if self.fir_successor == command['KilledPeer']:
                         self.fir_successor = self.sec_successor
                         print(f"My first successor is now peer {self.fir_successor}.")
                         self.sec_successor = command['FS']
                         print(f"My second successor is now peer {self.sec_successor}.")
+                    # The killed peer is the second successor of the current peer
                     if self.sec_successor == command['KilledPeer']:
                         print(f"My first successor is now peer {self.fir_successor}.")
                         if command["KilledPeer"] == command["FS"]:
@@ -202,8 +231,6 @@ class dhtNode:
         pickle_out = pickle.dumps({"flag":"FileFound_response","SendingPeer": peer})
         mysock.sendto(pickle_out,(host,dest + 50000))
         seq += 1
-        print(f"A response message, destined for peer {dest}, has been sent.")
-        print("We now start sending the file ………")
         while data:
             start = time.time()
             toSendPacket["flag"] = "File_tansferring"
