@@ -16,8 +16,8 @@ class dhtNode:
         self.sec_successor = sec_successor
         self.fir_predecessor = None
         self.sec_predecessor = None
-        self.noreply_1 = 0
-        self.noreply_2 = 0
+        # self.noreply_1 = 0
+        # self.noreply_2 = 0
         self.isAlive = True
 
     def UDP_Server(self,host):
@@ -34,7 +34,7 @@ class dhtNode:
                     self.fir_predecessor = packet["Peer"]
                 if self.peer == packet["SC"]:
                     self.sec_predecessor = packet["Peer"]
-                response = pickle.dumps({"flag":"Ping_response","Peer":self.peer})
+                response = pickle.dumps({"flag":"Ping_response","seq": packet["seq"],"Peer":self.peer})
                 LTPsock.sendto(response,addr)
             if "FileFound_response" == packet["flag"]:
                 start = time.time()
@@ -62,25 +62,57 @@ class dhtNode:
         mysock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         #make sure all the servers are ready
         mysock.settimeout(1)
+        seq = 0
+        recvd_seq1 = 0
+        recvd_seq2 = 0
+        isFirAlive = True
+        isSecAlive = True
         while self.isAlive:
             try:
-                toSendPing = pickle.dumps({"flag":"Ping_request","Peer":self.peer,"FS":self.fir_successor,"SC":self.sec_successor})
+                toSendPing = pickle.dumps({"flag":"Ping_request","seq":seq,"Peer":self.peer,"FS":self.fir_successor,"SC":self.sec_successor})
                 mysock.sendto(toSendPing,(host,self.fir_successor + 50000))
-                mysock.sendto(toSendPing,(host,self.sec_successor + 50000))
-                self.noreply_1 += 1
-                self.noreply_2 += 1
+                # because send ping twice, so I need to receive response twice
+                # The reason I didnt get all response before is because of not being aware of this!!
                 ready = select.select([mysock], [], [], 1)
                 if ready[0]:
                     response = pickle.loads(mysock.recv(1024))
                     print(f"A ping response message was received from Peer {response['Peer']}")
                     if response["Peer"] == self.fir_successor:
-                        self.noreply_1 -= 1
+                        recvd_seq1 = max(recvd_seq1, response["seq"])
                     if response["Peer"] == self.sec_successor:
-                        self.noreply_2 -= 1
-                # if self.noreply_1 >= 4:
-                #     print(f"Peer {self.fir_successor} is no longer alive.")
-
-                time.sleep(5)
+                        recvd_seq2 = max(recvd_seq2 ,response["seq"])
+                mysock.sendto(toSendPing,(host,self.sec_successor + 50000))
+                # self.noreply_1 += 1
+                # self.noreply_2 += 1
+                ready = select.select([mysock], [], [], 1)
+                if ready[0]:
+                    response = pickle.loads(mysock.recv(1024))
+                    print(f"A ping response message was received from Peer {response['Peer']}")
+                    if response["Peer"] == self.fir_successor:
+                        recvd_seq1 = max(recvd_seq1, response["seq"])
+                    if response["Peer"] == self.sec_successor:
+                        recvd_seq2 = max(recvd_seq2 ,response["seq"])
+                print(seq,recvd_seq1,recvd_seq2)
+                if seq - recvd_seq1 >= 4:
+                    # avoid printing duplicately
+                    # avoid sending message to a dead peer which leads to an "connection refused" error
+                    if isFirAlive:
+                        print(f"Peer {self.fir_successor} is no longer alive.")
+                        self.fir_successor = self.sec_successor
+                        print(f"My first successor is now peer {self.fir_successor}.")
+                        message = pickle.dumps({"flag":"Request_successor","Peer":self.peer})
+                        # mysock.sendto(message,(host,self.sec_successor + 50000))
+                        self.ForwardFileRes(host,message,self.sec_successor)
+                        isFirAlive = False
+                if seq - recvd_seq2 >= 4:
+                    if isSecAlive:
+                        print(f"Peer {self.sec_successor} is no longer alive.")
+                        message = pickle.dumps({"flag":"Request_successor","Peer":self.peer})
+                        # mysock.sendto(message,(host,self.fir_successor + 50000))
+                        self.ForwardFileRes(host,message,self.fir_successor)
+                        isSecAlive = False
+                seq += 1
+                time.sleep(10)
             except TimeoutError:
                 continue
         mysock.close()
@@ -123,7 +155,7 @@ class dhtNode:
                             self.ForwardFileRes(host,message,self.fir_successor)
                             # self.ForwardFileRes(host,message,self.sec_successor)
                             print(f"File request message for {filename} has been sent to my successor.")
-                else:
+                elif "Quit" == command["flag"]:
                     if self.peer != command['QuitingPeer']:
                         print(f"Peer {command['QuitingPeer']} will depart from the network.")
                         if self.fir_successor == command['QuitingPeer']:
@@ -135,6 +167,21 @@ class dhtNode:
                             self.sec_successor = command["FS"]
                             print(f"My first successor is now peer {self.fir_successor}.")
                             print(f"My first successor is now peer {command['FS']}.")
+                elif "Request_successor" == command["flag"]:
+                    # problem:??
+                    message = pickle.dumps({"flag":"Response_successor","Peer":self.peer,"FS":self.fir_successor,"SC":self.sec_successor})
+                    self.ForwardFileRes(host,message,message["Peer"])
+                else:
+                    # problem: not running
+                    # so cant reassign the second successor
+                    if self.fir_successor == command['Peer']:
+                        self.sec_successor = command['FS']
+                        print(f"My second successor is now peer {command['SC']}.")
+                    if self.sec_successor == command['Peer']:
+                        self.fir_successor = self.sec_successor
+                        print(f"My first successor is now peer {self.fir_successor}.")
+                        self.sec_successor = command["FS"]
+                        print(f"My second successor is now peer {command['FS']}.")
             connectionSocket.close()
     #over TCP
     def ForwardFileRes(self,host,message,dest):
