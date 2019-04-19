@@ -98,16 +98,16 @@ class dhtNode:
                     # avoid sending message to a dead peer which leads to an "connection refused" error
                     if isFirAlive:
                         print(f"Peer {self.fir_successor} is no longer alive.")
-                        self.fir_successor = self.sec_successor
-                        print(f"My first successor is now peer {self.fir_successor}.")
-                        message = pickle.dumps({"flag":"Request_successor","Peer":self.peer})
+                        deadPeer = self.fir_successor
+                        message = pickle.dumps({"flag":"Request_successor","Peer":self.peer,"KilledPeer":deadPeer})
                         # mysock.sendto(message,(host,self.sec_successor + 50000))
                         self.ForwardFileRes(host,message,self.sec_successor)
                         isFirAlive = False
                 if seq - recvd_seq2 >= 4:
                     if isSecAlive:
                         print(f"Peer {self.sec_successor} is no longer alive.")
-                        message = pickle.dumps({"flag":"Request_successor","Peer":self.peer})
+                        deadPeer = self.sec_successor
+                        message = pickle.dumps({"flag":"Request_successor","Peer":self.peer,"KilledPeer":deadPeer})
                         # mysock.sendto(message,(host,self.fir_successor + 50000))
                         self.ForwardFileRes(host,message,self.fir_successor)
                         isSecAlive = False
@@ -137,6 +137,7 @@ class dhtNode:
             connectionSocket, addr = serverSocket.accept()
             command = pickle.loads(connectionSocket.recv(1024))
             if command:
+                # print(command)
                 if "Request_File" == command["flag"]:
                     vPeer = command["visitedPeer"]
                     if self.peer not in vPeer and self.peer != command["RequestingPeer"]:
@@ -168,17 +169,19 @@ class dhtNode:
                             print(f"My first successor is now peer {self.fir_successor}.")
                             print(f"My first successor is now peer {command['FS']}.")
                 elif "Request_successor" == command["flag"]:
-                    # problem:??
-                    message = pickle.dumps({"flag":"Response_successor","Peer":self.peer,"FS":self.fir_successor,"SC":self.sec_successor})
-                    self.ForwardFileRes(host,message,message["Peer"])
+                    raw_message = {"flag":"Response_successor","Peer":command["Peer"],"KilledPeer":command["KilledPeer"],"FS":self.fir_successor,"SC":self.sec_successor}
+                    message = pickle.dumps(raw_message)
+                    self.ForwardFileRes(host,message,command["Peer"])
                 else:
                     # problem: not running
                     # so cant reassign the second successor
-                    if self.fir_successor == command['Peer']:
-                        self.sec_successor = command['FS']
-                        print(f"My second successor is now peer {command['SC']}.")
-                    if self.sec_successor == command['Peer']:
+                    if self.fir_successor == command['KilledPeer']:
                         self.fir_successor = self.sec_successor
+                        print(f"My first successor is now peer {self.fir_successor}.")
+                        self.sec_successor = command['FS']
+                        print(f"My second successor is now peer {self.sec_successor}.")
+                    if self.sec_successor == command['KilledPeer']:
+                        # self.fir_successor = self.sec_successor
                         print(f"My first successor is now peer {self.fir_successor}.")
                         self.sec_successor = command["FS"]
                         print(f"My second successor is now peer {command['FS']}.")
