@@ -22,7 +22,7 @@ class dhtNode:
         LTPsock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         LTPsock.bind((host,self.port))
         packet = {}
-        next_seq,Ack = 0,0
+        next_seq,Ack = 0,1
         while self.isAlive:
             data, addr = LTPsock.recvfrom(1024)
             packet = pickle.loads(data)
@@ -163,7 +163,7 @@ class dhtNode:
                             print(f"My first successor is now peer {self.fir_successor}.")
                             print(f"My first successor is now peer {command['FS']}.")
                 elif "Request_successor" == command["flag"]:
-                    raw_message = {"flag":"Response_successor","Peer":command["Peer"],"KilledPeer":command["KilledPeer"],"FS":self.fir_successor,"SC":self.sec_successor}
+                    raw_message = {"flag":"Response_successor","Peer":self.peer,"KilledPeer":command["KilledPeer"],"FS":self.fir_successor,"SC":self.sec_successor}
                     message = pickle.dumps(raw_message)
                     self.ForwardFileRes(host,message,command["Peer"])
                 else:
@@ -173,10 +173,12 @@ class dhtNode:
                         self.sec_successor = command['FS']
                         print(f"My second successor is now peer {self.sec_successor}.")
                     if self.sec_successor == command['KilledPeer']:
-                        # self.fir_successor = self.sec_successor
                         print(f"My first successor is now peer {self.fir_successor}.")
-                        self.sec_successor = command["FS"]
-                        print(f"My second successor is now peer {command['FS']}.")
+                        if command["KilledPeer"] == command["FS"]:
+                            self.sec_successor = command["SC"]
+                        else:
+                            self.sec_successor = command["FS"]
+                        print(f"My second successor is now peer {self.sec_successor}.")
             connectionSocket.close()
     #over TCP
     def ForwardFileRes(self,host,message,dest):
@@ -199,6 +201,7 @@ class dhtNode:
         #send a file found response message to the requesting peer
         pickle_out = pickle.dumps({"flag":"FileFound_response","SendingPeer": peer})
         mysock.sendto(pickle_out,(host,dest + 50000))
+        seq += 1
         print(f"A response message, destined for peer {dest}, has been sent.")
         print("We now start sending the file ………")
         while data:
