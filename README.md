@@ -1,12 +1,15 @@
-#% Assignment Report of COMP9331
-#% Written by YAOYE LU
-#% Student ID: 5188093
-#% Title: Report of implementation of P2P Protocol Circular DHT
+# Assignment Report of COMP9331
+
+# Written by YAOYE LU
+
+# Student ID: 5188093
+
+# Title: Report of implementation of P2P Protocol Circular DHT
 
 1. Steps of implementation
 
     1.1 Build a peer node class which contains the following properties/functions:
-    
+
         a. A initilization function to nitilize a peer node.
         b. A UDP_Server to permanently listen to the message (ping and file packets) sent over UDP and maintain receiver side logs.
         c. A UDP_Client to send message (ping and file packets) to UDP servers.
@@ -75,17 +78,25 @@
             {"flag":"Response_successor","Peer":,"KilledPeer":,"FS":,"SC":}
 
 3. Version of Python:
+
     Python3
 
 4. Improvements:
+
     4.1 Considering file chunks are not transferred in order:
+
         Infact, I have successfully implemented this in the earlier version, but after being told that there is no need to consider this case in the forum, and to make the code clearer, I just backed up in github and deleted it in the source code.
+
         Therefore, in future, if there is any real application, this has to be considered and handled.
     
     4.2 Considering the pickled packets got truncated during the transmission when MSS is large enough:
+
         I have encoutered this problem when I was testing the code. First, I was not able to solve it and then I came to an idea by using flag labeling the type of packets to distinguish if it is a completely original pickled fragment or it is a truncated piece of pickled fragment. And this also inspired the idea of the format of messages.
+
         BTW, I also have implemented this in earlier version and backed up in github.
 
 5. Important Note:
+
     5.1 The first letter of the input command has to be UPPER-CASES.
+
     5.2 Due to the short time inetrval of pinging, it is easy to input the command incorrectly, if that happens, it is NOT that there is bug in the source code, just typos or some unexpected situations, so PLEASE PLEASE just be paient to try again and input carefully, because it happens very often to me as well when testing!!
