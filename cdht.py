@@ -16,8 +16,6 @@ class dhtNode:
         self.sec_successor = sec_successor
         self.fir_predecessor = None
         self.sec_predecessor = None
-        # self.noreply_1 = 0
-        # self.noreply_2 = 0
         self.isAlive = True
 
     def UDP_Server(self,host):
@@ -82,8 +80,6 @@ class dhtNode:
                     if response["Peer"] == self.sec_successor:
                         recvd_seq2 = max(recvd_seq2 ,response["seq"])
                 mysock.sendto(toSendPing,(host,self.sec_successor + 50000))
-                # self.noreply_1 += 1
-                # self.noreply_2 += 1
                 ready = select.select([mysock], [], [], 1)
                 if ready[0]:
                     response = pickle.loads(mysock.recv(1024))
@@ -92,7 +88,6 @@ class dhtNode:
                         recvd_seq1 = max(recvd_seq1, response["seq"])
                     if response["Peer"] == self.sec_successor:
                         recvd_seq2 = max(recvd_seq2 ,response["seq"])
-                print(seq,recvd_seq1,recvd_seq2)
                 if seq - recvd_seq1 >= 4:
                     # avoid printing duplicately
                     # avoid sending message to a dead peer which leads to an "connection refused" error
@@ -137,7 +132,6 @@ class dhtNode:
             connectionSocket, addr = serverSocket.accept()
             command = pickle.loads(connectionSocket.recv(1024))
             if command:
-                # print(command)
                 if "Request_File" == command["flag"]:
                     vPeer = command["visitedPeer"]
                     if self.peer not in vPeer and self.peer != command["RequestingPeer"]:
@@ -173,8 +167,6 @@ class dhtNode:
                     message = pickle.dumps(raw_message)
                     self.ForwardFileRes(host,message,command["Peer"])
                 else:
-                    # problem: not running
-                    # so cant reassign the second successor
                     if self.fir_successor == command['KilledPeer']:
                         self.fir_successor = self.sec_successor
                         print(f"My first successor is now peer {self.fir_successor}.")
